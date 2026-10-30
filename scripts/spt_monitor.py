@@ -238,13 +238,20 @@ def apply_update(cache, rows, notes):
 
 
 def scan(hours, max_pages, update, quiet, from_file=None):
-    """跑一遍并把一行纯计数写进 status（抓到几条、缓存已含几条），再原样返回结果"""
+    """跑一遍并把一行纯计数写进 status（抓到几条、与缓存一致几条），再原样返回结果"""
     code, count, stats = sweep(hours, max_pages, update, quiet, from_file)
+    if code in (EXIT_NO_CHANGE, EXIT_CHANGED):
+        # 这轮成功了：把上一轮遗留的 error 清掉，免得几天前那条被当成这次的失败
+        try:
+            if os.path.exists(ERROR):
+                os.remove(ERROR)
+        except Exception:
+            pass
     try:
         os.makedirs(DATA, exist_ok=True)
         with open(STATUS, "w", encoding="utf-8") as handle:
             handle.write(f"{datetime.now(LOCAL_TZ).strftime('%m-%d %H:%M')} [{NAME}] 退出码{code}"
-                         f" 抓到{stats['got']} 缓存已含{stats['already']} 窗口外{stats['outside']}"
+                         f" 抓到{stats['got']} 没变化{stats['already']} 窗口外{stats['outside']}"
                          f" 新增{stats['new']} 更新{stats['updated']} 窗口{hours}小时 翻了{stats['pages']}页"
                          + (" [覆盖告警]" if stats.get("coverage") else "")
                          + (f" {stats['note']}" if stats.get("note") else "") + "\n")
@@ -303,15 +310,33 @@ def sweep(hours, max_pages, update, quiet, from_file=None):
 
     if not quiet:
         print("\n".join(lines) if rows
-              else f"[{NAME}] 无新增/更新（翻了 {pages} 页、抓到 {len(items)} 条，缓存已含 {stats['already']} 条，窗口 {hours} 小时）")
+              else f"[{NAME}] 无新增/更新（翻了 {pages} 页、抓到 {len(items)} 条，{stats['already']} 条与缓存一致、{stats['outside']} 条在窗口外，窗口 {hours} 小时）")
     return ((EXIT_CHANGED, len(rows), stats) if rows else (EXIT_NO_CHANGE, 0, stats))
 
 
+def grab_age_minutes(path):
+    """抓取文件放了多少分钟。旧文件冒充新结果最阴——会一路报「无新增/更新」，其实根本没重新抓"""
+    try:
+        return (time.time() - os.path.getmtime(path)) / 60.0
+    except Exception:
+        return None
+
+
+class ArgParser(argparse.ArgumentParser):
+    """参数用错时 argparse 默认 exit(2)——那个码在本脚本里另有所指，会骗到读退出码的人；
+    这里统一退成 9（用法错误），用法行照样给到 stderr，也不往 stdout 吐东西"""
+
+    def error(self, message):
+        sys.stderr.write("用法错误：" + message + "（看脚本开头的用法说明）\n")
+        raise SystemExit(9)
+
+
 def main(argv=None):
-    parser = argparse.ArgumentParser(add_help=False)
+    parser = ArgParser(add_help=False)
     parser.add_argument("--hours", type=int, default=24)
     parser.add_argument("--pages", type=int, default=MAX_PAGES)
     parser.add_argument("--from-file", dest="from_file")
+    parser.add_argument("--max-age", dest="max_age", type=int, default=60)
     parser.add_argument("--update", action="store_true")
     parser.add_argument("--print", dest="echo", action="store_true")
     parser.add_argument("--selftest", action="store_true")
@@ -319,6 +344,12 @@ def main(argv=None):
 
     if args.selftest:
         return _selftest(args.echo)
+
+    if args.from_file:
+        age = grab_age_minutes(args.from_file)
+        if args.max_age > 0 and age is not None and age > args.max_age:
+            return write_error(f"{args.from_file} 是 {int(age)} 分钟前的页面（超过 {args.max_age} 分钟）——"
+                               "脚本自己抓的会一直超时；确实要用旧 HTML 就 --max-age 0", not args.echo, EXIT_FAILED)
 
     return scan(hours=max(1, args.hours), max_pages=min(20, max(1, args.pages)),
                 update=args.update, quiet=not args.echo, from_file=args.from_file)[0]
@@ -383,7 +414,7 @@ def _selftest(echo):
                    scan(hours=24 * 365, max_pages=1, update=False, quiet=True, from_file=html_path)[0], EXIT_NO_CHANGE))
     checks.append(("无变化时 report 被删掉", os.path.exists(REPORT), False))
     status = open(STATUS, encoding="utf-8").read()
-    checks.append(("status 说清是缓存已含、不是没抓到", "抓到2 缓存已含2 窗口外0 新增0 更新0" in status, True))
+    checks.append(("status 说清是缓存已含、不是没抓到", "抓到2 没变化2 窗口外0 新增0 更新0" in status, True))
     checks.append(("status 里不带卡片名（不往对话塞数据）", "Open Barters" in status, False))
     bad = os.path.join(DATA, "empty.html")
     open(bad, "w", encoding="utf-8").write("<html>没有卡片</html>")
