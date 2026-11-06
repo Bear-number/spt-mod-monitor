@@ -2,8 +2,8 @@
 # -*- coding: utf-8 -*-
 """SPT（单机塔科夫）MOD 监控（sp-mod.com）——自己抓取、翻页、静默比对缓存，只落盘不回显
 
-sp-mod.com 没有拦截，直连可取（2026-10-22 本机实测 200 / 约 378KB / 每页 12 张卡片），所以这个脚本
-自己抓页面，不靠浏览器、也不把数据打到 stdout：抓 → 解析 → 与缓存比 → 有变化才写 report，退出码带状态。
+自己抓页面，不靠浏览器、也不把数据打到 stdout：抓 → 解析 → 与缓存比 → 有变化才写 report，
+退出码带状态。
 
 退出码：0 无变化（report 已删） / 1 有变化（去读 report） / 2 抓到了但解析不出卡片 / 3 抓取或读写失败
 
@@ -57,7 +57,7 @@ def parse_abs(raw):
     if isinstance(raw, bool):
         return None
     if isinstance(raw, (int, float)):
-        # 历史缓存里 date 可能存成 epoch 秒浮点（nexus 那边实测有 50 条），0.0 是占位不当时间看
+        # 历史缓存里 date 可能是 epoch 秒浮点，0.0 是占位不当时间看
         return datetime.fromtimestamp(raw, timezone.utc) if raw > 10 ** 8 else None
     text = str(raw or "").strip()
     if not text or text in ("?", "-") or RELATIVE.match(text):
@@ -394,7 +394,7 @@ def _selftest(echo):
     checks.append(("窗口·是更新但已在窗口外就不报", len(collect(parse_page(old_page), old_cache, 1)[0]), 0))
     checks.append(("窗口·窗口放宽到一年就能报出来", len(collect(parse_page(old_page), old_cache, 24 * 365)[0]), 2))
 
-    # 真缓存里的历史形状：date 是 epoch 浮点、0.0 是占位（nexus 那边实测有 50 条这种）
+    # 历史缓存的形状：date 是 epoch 浮点、0.0 是占位
     checks.append(("历史缓存·epoch浮点认得出", parse_abs(1788222600.0) is not None, True))
     checks.append(("历史缓存·0.0 当没有时间", parse_abs(0.0), None))
     checks.append(("历史缓存·None 不炸", parse_abs(None), None))
