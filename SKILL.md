@@ -41,4 +41,4 @@ py -3 D:\Alife\Storage\Skills\spt-mod-monitor\scripts\spt_monitor.py --update
 
 ## 注意
 - 列表页默认按「最近更新」排序（`?order=updated`）。只看某版本时，人工用浏览器抓那一页再 `--from-file`。
-- 检查间隔建议 ≥2 小时；只记录信息，不下载 MOD。
+- 检查间隔建议 ≥24 小时；只记录信息，不下载 MOD。
